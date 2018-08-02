@@ -1,0 +1,87 @@
+version: "2.0"
+
+services:
+
+  socksproxy:
+    image: foomo/tlssocksproxy:latest
+    restart: unless-stopped
+    command:
+      - "-addr=0.0.0.0:8000"
+      - "-server=tunneltunnel:8000"
+      - "-insecure-skip-verify"
+    networks:
+      - public
+      - default
+    ports: 
+      - 8000:8000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"   
+
+  tunneltunnel:
+    image: foomo/tcpproxy:latest
+    restart: unless-stopped
+    command:
+      - "-addr=0.0.0.0:8000"
+      - "-destination=tunnel:8000"
+    networks:
+      - default
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"   
+
+  tunnel:
+    image: foomo/tcpproxy:latest
+    restart: unless-stopped
+    command:
+      - "-addr=0.0.0.0:8000"
+      - "-destination=tlssocks:8001"
+    networks:
+      - default
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"   
+
+  echo:
+    image: hashicorp/http-echo
+    command: 
+      - "-listen=:8080"
+      - "-text=hello-world"
+    networks:
+      - default
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"   
+
+
+  tlssocks:
+    image: foomo/tlssocks:latest
+    restart: unless-stopped
+    command:
+      - "-addr=0.0.0.0:8001"
+      - "-auth=/tlssocks/users.htpasswd"
+      - "-destinations=/tlssocks/destinations.yaml"
+      - "-cert=/tlssocks/certificate.crt"
+      - "-key=/tlssocks/certificate.key"
+    networks:
+      - default
+    volumes:
+      - ./tlssocks:/tlssocks
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"      
+
+networks:
+  public:
+    external:
+      name: public

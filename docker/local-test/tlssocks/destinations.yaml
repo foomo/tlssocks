@@ -1,0 +1,21 @@
+---
+www.heise.de:
+  ports: 
+    - 80
+    - 443
+  users:
+    - jan
+    - peter
+
+echo:
+  ports: 
+    - 8080
+  users:
+    - jan
+
+www.google.com:
+  ports: 
+    - 443
+  users:
+    - peter
+...
