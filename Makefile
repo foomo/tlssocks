@@ -36,4 +36,7 @@ docker-push:
 	docker push foomo/tcpproxy:latest
 	docker push foomo/tlssocksproxy:latest
 
+docker-local-test: cert-create cert-show 
+	cd docker/local-test && docker-compose up
+
 	
