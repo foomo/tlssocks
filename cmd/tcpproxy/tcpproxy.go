@@ -36,5 +36,5 @@ func main() {
 	)
 	var p tcpproxy.Proxy
 	p.AddRoute(*flagAddr, tcpproxy.To(*flagDestination))
-	logger.Fatal("sgutting down", zap.Error(p.Run()))
+	logger.Fatal("shutting down", zap.Error(p.Run()))
 }
