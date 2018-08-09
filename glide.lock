@@ -1,0 +1,33 @@
+hash: 4630bea1caf32331973c4b5fa53801b7072b1b1dcc70af7c4dabc645a44c9704
+updated: 2018-08-09T08:36:57.295328+02:00
+imports:
+- name: github.com/armon/go-socks5
+  version: e75332964ef517daa070d7c38a9466a0d687e0a5
+- name: github.com/foomo/htpasswd
+  version: 5c693a30dfc9ed2dda015a0759a5572fa0f53fca
+- name: github.com/google/tcpproxy
+  version: dfa16c61dad2b18a385dfb351adf71566720535b
+- name: go.uber.org/atomic
+  version: 1ea20fb1cbb1cc08cbd0d913a96dead89aa18289
+- name: go.uber.org/multierr
+  version: 3c4937480c32f4c13a875a1829af76c98ca3d40a
+- name: go.uber.org/zap
+  version: ff33455a0e382e8a81d14dd7c922020b6b5e7982
+  subpackages:
+  - buffer
+  - internal/bufferpool
+  - internal/color
+  - internal/exit
+  - zapcore
+- name: golang.org/x/crypto
+  version: c197bcf24cde29d3f73c7b4ac6fd41f4384e8af6
+  subpackages:
+  - bcrypt
+  - blowfish
+- name: golang.org/x/net
+  version: 5bc3a08dc8042ac11f2752c257a2367c02ba32e8
+  subpackages:
+  - context
+- name: gopkg.in/yaml.v2
+  version: 5420a8b6744d3b0345ab293f6fcba19c978f1183
+testImports: []
