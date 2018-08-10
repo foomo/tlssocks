@@ -75,6 +75,11 @@ curl: (7) Can't complete SOCKS5 connection to 0.0.0.0:0. (2)
 
 Opens an tls encrypted connection to tlssocks - optionally through one or multiple tcpproxies and makes it available as a "normal" socks5 server.
 
+```bash
+# running a tlssocksproxy locally to connect a remote tlssocks using tls encryption
+docker run --rm -p="8000:8000" foomo/tlssocksproxy:latest -addr="0.0.0.0:8000" -server="tlssocks.example.com:8765"
+```
+
 ## tcpproxy
 
 Very light weight wrapper around googles [https://github.com/google/tcpproxy](https://github.com/google/tcpproxy) - can be daisychained.
