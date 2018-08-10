@@ -53,9 +53,9 @@ func main() {
 		tlsConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
-
+		logger.Warn("running without verification of the tls server - this is dangerous")
 	}
-	logger.Warn("running without verification of the tls server - this is dangerous")
+
 	for {
 		socksConn, errAccept := socks5Listener.Accept()
 		if errAccept != nil {
