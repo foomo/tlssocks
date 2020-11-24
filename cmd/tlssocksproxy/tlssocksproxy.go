@@ -82,28 +82,31 @@ func main() {
 			defer socksConn.Close()
 
 			chanErr := make(chan error)
+
 			go copyShit("conn->socksConn", chanErr, conn, socksConn)
 			go copyShit("socksConn->conn", chanErr, socksConn, conn)
-			errCopy := <-chanErr
 
-			if errCopy != nil {
-				switch true {
-				case errCopy == io.ErrUnexpectedEOF,
-					errCopy == io.ErrClosedPipe,
-					errCopy == io.EOF,
-					errCopy.Error() == "broken pipe":
-					logger.Info(
-						"an error occured, while copying data",
-						zap.Error(errCopy),
-					)
+			// wait for both copy methods to finish
+			for i:=0; i<2;i++{
+				errCopy := <-chanErr
+				if errCopy != nil {
+					switch true {
+					case errCopy == io.ErrUnexpectedEOF,
+						errCopy == io.ErrClosedPipe,
+						errCopy == io.EOF,
+						errCopy.Error() == "broken pipe":
+						logger.Info(
+							"an error occured, while copying data",
+							zap.Error(errCopy),
+						)
+					}
 				}
 			}
+
 			logger.Info(
 				"served request",
 				zap.Duration("dur", time.Now().Sub(start)),
-				zap.Error(errCopy),
 			)
 		})(socksConn)
 	}
-
 }
