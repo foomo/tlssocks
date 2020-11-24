@@ -79,6 +79,7 @@ func main() {
 				return
 			}
 			defer conn.Close()
+			defer socksConn.Close()
 
 			chanErr := make(chan error)
 			go copyShit("conn->socksConn", chanErr, conn, socksConn)
