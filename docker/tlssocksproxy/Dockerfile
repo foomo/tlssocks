@@ -1,7 +1,7 @@
 ##############################
 ###### STAGE: BUILD     ######
 ##############################
-FROM golang:latest AS build-env
+FROM golang:alpine AS build-env
 
 WORKDIR /src
 
@@ -16,9 +16,9 @@ COPY ./ ./
 
 # NOT SUPPORTED BY DOCKER HUB
 #RUN --mount=type=cache,target=/root/.cache/go-build \
-#    go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
+#    CGO_ENABLED=0 go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
 
-RUN go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
+RUN CGO_ENABLED=0 go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
 
 ##############################
 ###### STAGE: CONTAINER     ######
@@ -28,3 +28,5 @@ FROM alpine
 COPY --from=build-env /tlssocksproxy /usr/sbin/tlssocksproxy
 
 ENTRYPOINT [ "/usr/sbin/tlssocksproxy" ]
+
+CMD ["/usr/sbin/tlssocksproxy"]
