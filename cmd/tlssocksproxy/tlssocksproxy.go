@@ -38,8 +38,6 @@ func copyData(streamName string, dst io.Writer, src io.Reader) error {
 }
 
 func main() {
-	defer logger.Sync()
-
 	flagInsecureSkipVerify := flag.Bool("insecure-skip-verify", false, "allow insecure skipping of peer verification, when talking to the server")
 	flagAddr := flag.String("addr", "", "address to listen to like 0.0.0.0:8001")
 	flagAddrServer := flag.String("server", "", "address of the tls socks server like 0.0.0.0:8000")
@@ -58,7 +56,10 @@ func main() {
 			zap.Error(errListenSocks5),
 		)
 	}
-	defer socks5Listener.Close()
+	defer func() {
+		_ = socks5Listener.Close()
+		_ = logger.Sync()
+	}()
 
 	var tlsConfig *tls.Config
 
@@ -70,7 +71,6 @@ func main() {
 	}
 	ctx := context.Background()
 
-	// Run Promehteus Handler
 	go runPrometheusHandler(ctx, defaultPrometheusAddress)
 
 	for {
@@ -124,12 +124,14 @@ func serve(ctx context.Context, srcConn io.ReadWriteCloser, destinationAddress s
 	})
 
 	if err := group.Wait(); err != nil {
-		switch true {
+		switch {
 		case err == io.ErrUnexpectedEOF,
 			err == io.ErrClosedPipe,
 			err == io.EOF,
 			err.Error() == "broken pipe":
 			logger.Warn("Error occurred, while copying data", zap.Error(err))
+		default:
+			logger.Error("Unexpected error occurred while copying the data", zap.Error(err))
 		}
 	}
 
@@ -155,7 +157,7 @@ func recoverAndLogPanic() {
 	}
 }
 
-func runPrometheusHandler(ctx context.Context, address string) {
+func runPrometheusHandler(_ context.Context, address string) {
 	h := http.NewServeMux()
 	h.Handle("/metrics", promhttp.Handler())
 	logger.Fatal("Failed to start prometheus handler", zap.Error(http.ListenAndServe(address, h)))
