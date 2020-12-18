@@ -38,6 +38,8 @@ func copyData(streamName string, dst io.Writer, src io.Reader) error {
 }
 
 func main() {
+	defer logger.Sync()
+
 	flagInsecureSkipVerify := flag.Bool("insecure-skip-verify", false, "allow insecure skipping of peer verification, when talking to the server")
 	flagAddr := flag.String("addr", "", "address to listen to like 0.0.0.0:8001")
 	flagAddrServer := flag.String("server", "", "address of the tls socks server like 0.0.0.0:8000")
@@ -56,10 +58,8 @@ func main() {
 			zap.Error(errListenSocks5),
 		)
 	}
-	defer func() {
-		_ = socks5Listener.Close()
-		_ = logger.Sync()
-	}()
+
+	defer silentClose(socks5Listener)
 
 	var tlsConfig *tls.Config
 
@@ -92,6 +92,8 @@ func main() {
 func serve(ctx context.Context, srcConn io.ReadWriteCloser, destinationAddress string, tlsConfig *tls.Config) {
 	// Recover if a panic occurs
 	defer recoverAndLogPanic()
+	defer silentClose(srcConn)
+
 	// Cancel context
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -106,11 +108,7 @@ func serve(ctx context.Context, srcConn io.ReadWriteCloser, destinationAddress s
 		)
 		return
 	}
-
-	defer func() {
-		_ = dstConn.Close()
-		_ = srcConn.Close()
-	}()
+	defer silentClose(dstConn)
 
 	group, gctx := errgroup.WithContext(ctx)
 
@@ -161,4 +159,8 @@ func runPrometheusHandler(_ context.Context, address string) {
 	h := http.NewServeMux()
 	h.Handle("/metrics", promhttp.Handler())
 	logger.Fatal("Failed to start prometheus handler", zap.Error(http.ListenAndServe(address, h)))
+}
+
+func silentClose(closer io.Closer) {
+	_ = closer.Close()
 }
