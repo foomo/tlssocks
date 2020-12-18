@@ -7,13 +7,18 @@ WORKDIR /src
 
 COPY ./go.mod ./go.sum ./
 
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    go mod download
+# NOT SUPPORTED BY DOCKER HUB
+#RUN --mount=type=cache,target=/root/.cache/go-build \
+#    go mod download
+RUN go mod download
 
 COPY ./ ./
 
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
+# NOT SUPPORTED BY DOCKER HUB
+#RUN --mount=type=cache,target=/root/.cache/go-build \
+#    go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
+
+RUN go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
 
 ##############################
 ###### STAGE: CONTAINER     ######
