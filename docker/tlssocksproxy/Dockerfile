@@ -25,6 +25,6 @@ RUN go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
 ##############################
 FROM alpine
 
-COPY --from=build-env tlssocksproxy /usr/sbin/tlssocksproxy
+COPY --from=build-env /tlssocksproxy /usr/sbin/tlssocksproxy
 
 ENTRYPOINT [ "/usr/sbin/tlssocksproxy" ]
