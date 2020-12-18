@@ -14,7 +14,6 @@ cert-show:
 cert-trust-on-mac:
 	sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain docker/local-test/tlssocks/certificate.crt
 
-
 docker-build-tlssocks:
 	rm -vf cmd/tlssocks/tlssocks
 	GOOS=linux go build -o cmd/tlssocks/tlssocks cmd/tlssocks/tlssocks.go
@@ -25,11 +24,10 @@ docker-build-tcpproxy:
 	GOOS=linux go build -o cmd/tcpproxy/tcpproxy cmd/tcpproxy/tcpproxy.go
 	cd cmd/tcpproxy && docker build -t foomo/tcpproxy:latest .
 	rm -vf cmd/tcpproxy/tcpproxy
+
 docker-build-tlssocksproxy:
-	rm -vf cmd/tlssocksproxy/tlssocksproxy
-	GOOS=linux go build -o cmd/tlssocksproxy/tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
-	cd cmd/tlssocksproxy && docker build -t foomo/tlssocksproxy:latest .
-	rm -vf cmd/tlssocksproxy/tlssocksproxy
+	docker build -t foomo/tlssocksproxy:latest -f docker/tlssocksproxy/Dockerfile .
+
 docker-build: docker-build-tlssocks docker-build-tcpproxy docker-build-tlssocksproxy
 docker-push:
 	docker push foomo/tlssocks:latest 
