@@ -13,7 +13,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -102,8 +101,7 @@ func serve(ctx context.Context, srcConn io.ReadWriteCloser, destinationAddress s
 	start := time.Now()
 
 	dstConn, errDial := tls.DialWithDialer(&net.Dialer{
-		KeepAlive: -1,
-		Timeout:   defaultTimeout,
+		Timeout: defaultTimeout,
 	}, "tcp", destinationAddress, tlsConfig)
 
 	if errDial != nil {
@@ -115,26 +113,24 @@ func serve(ctx context.Context, srcConn io.ReadWriteCloser, destinationAddress s
 	}
 	defer silentClose(dstConn)
 
-	group, gctx := errgroup.WithContext(ctx)
+	errChan := make(chan error)
 
-	group.Go(func() error {
-		srcConn := tlssocks.NewBufferedReader(gctx, srcConn)
-		return copyData("conn->socksConn", dstConn, srcConn)
-	})
-	group.Go(func() error {
-		dstConn := tlssocks.NewBufferedReader(gctx, dstConn)
-		return copyData("socksConn->conn", srcConn, dstConn)
-	})
+	go func() {
+		srcConn := tlssocks.NewContextReader(ctx, srcConn)
+		errChan <- copyData("conn->socksConn", dstConn, srcConn)
+	}()
+	go func() {
+		dstConn := tlssocks.NewContextReader(ctx, dstConn)
+		errChan <- copyData("socksConn->conn", srcConn, dstConn)
+	}()
 
-	if err := group.Wait(); err != nil {
+	if err := <-errChan; err != nil {
 		switch {
 		case err == io.ErrUnexpectedEOF,
 			err == io.ErrClosedPipe,
 			err == io.EOF,
 			err.Error() == "broken pipe":
 			logger.Warn("Error occurred, while copying data", zap.Error(err))
-		default:
-			logger.Error("Unexpected error occurred while copying the data", zap.Error(err))
 		}
 	}
 
