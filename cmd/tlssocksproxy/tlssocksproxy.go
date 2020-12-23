@@ -21,6 +21,7 @@ var (
 )
 
 const (
+	defaultTimeout           = 180 * time.Second
 	defaultPrometheusAddress = ":9200"
 )
 
@@ -41,7 +42,7 @@ func main() {
 	defer logger.Sync()
 
 	flagInsecureSkipVerify := flag.Bool("insecure-skip-verify", false, "allow insecure skipping of peer verification, when talking to the server")
-	flagAddr := flag.String("addr", "", "address to listen to like 0.0.0.0:8001")
+	flagAddr := flag.String("addr", "0.0.0.0:8080", "address to listen to like 0.0.0.0:8001")
 	flagAddrServer := flag.String("server", "", "address of the tls socks server like 0.0.0.0:8000")
 	flag.Parse()
 
@@ -100,7 +101,11 @@ func serve(ctx context.Context, srcConn io.ReadWriteCloser, destinationAddress s
 
 	start := time.Now()
 
-	dstConn, errDial := tls.Dial("tcp", destinationAddress, tlsConfig)
+	dstConn, errDial := tls.DialWithDialer(&net.Dialer{
+		KeepAlive: -1,
+		Timeout:   defaultTimeout,
+	}, "tcp", destinationAddress, tlsConfig)
+
 	if errDial != nil {
 		logger.Warn(
 			"could not reach tls server",
@@ -113,12 +118,12 @@ func serve(ctx context.Context, srcConn io.ReadWriteCloser, destinationAddress s
 	group, gctx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
-		contextReader := tlssocks.NewReader(gctx, srcConn)
-		return copyData("conn->socksConn", dstConn, contextReader)
+		srcConn := tlssocks.NewBufferedReader(gctx, srcConn)
+		return copyData("conn->socksConn", dstConn, srcConn)
 	})
 	group.Go(func() error {
-		contextReader := tlssocks.NewReader(gctx, dstConn)
-		return copyData("socksConn->conn", srcConn, contextReader)
+		dstConn := tlssocks.NewBufferedReader(gctx, dstConn)
+		return copyData("socksConn->conn", srcConn, dstConn)
 	})
 
 	if err := group.Wait(); err != nil {

@@ -1,8 +1,13 @@
 package tlssocks
 
 import (
+	"bufio"
 	"context"
 	"io"
+)
+
+const (
+	defaultBufferSize = 10 * 1024
 )
 
 type readerCtx struct {
@@ -18,9 +23,9 @@ func (r *readerCtx) Read(p []byte) (n int, err error) {
 }
 
 // NewReader gets a context-aware io.Reader.
-func NewReader(ctx context.Context, r io.Reader) io.Reader {
+func NewBufferedReader(ctx context.Context, r io.Reader) io.Reader {
 	return &readerCtx{
 		ctx: ctx,
-		r:   r,
+		r:   bufio.NewReader(r),
 	}
 }

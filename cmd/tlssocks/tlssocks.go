@@ -170,9 +170,7 @@ func main() {
 	credentials := Credentials(passwordHashes)
 
 	suxx5, errSuxx5 := newSocksAuthenticator(destinations)
-	if errSuxx5 != nil {
-		panic(errSuxx5)
-	}
+	must(errSuxx5)
 
 	autenticator := socks5.UserPassAuthenticator{Credentials: credentials}
 
@@ -181,9 +179,7 @@ func main() {
 		AuthMethods: []socks5.Authenticator{autenticator},
 	}
 	server, err := socks5.New(conf)
-	if err != nil {
-		panic(err)
-	}
+	must(err)
 
 	logger.Info(
 		"starting tls server",
@@ -196,6 +192,7 @@ func main() {
 	if errLoadKeyPair != nil {
 		logger.Fatal("could not load server key pair", zap.Error(errLoadKeyPair))
 	}
+
 	listener, errListen := tls.Listen("tcp", *flagAddr, &tls.Config{Certificates: []tls.Certificate{cert}})
 	if errListen != nil {
 		logger.Fatal(
