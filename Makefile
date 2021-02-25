@@ -19,6 +19,7 @@ docker-build-tlssocks:
 	GOOS=linux go build -o cmd/tlssocks/tlssocks cmd/tlssocks/tlssocks.go
 	cd cmd/tlssocks && docker build -t foomo/tlssocks:latest .
 	rm -vf cmd/tlssocks/tlssocks
+
 docker-build-tcpproxy:
 	rm -vf cmd/tcpproxy/tcpproxy
 	GOOS=linux go build -o cmd/tcpproxy/tcpproxy cmd/tcpproxy/tcpproxy.go

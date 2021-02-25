@@ -22,11 +22,11 @@ func init() {
 
 func main() {
 	defer logger.Sync()
-	flagSocksServer := flag.String("socks-server", "", "addr of socks server like socks://user:pass@127.0.0.1:8000")
+	flagSocksServer := flag.String("socks-server", "socks5://test:test@127.0.0.1:8000", "addr of socks server like socks://user:pass@127.0.0.1:8000")
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
-		logger.Fatal("usage: " + os.Args[0] + " -socks-server=127.0.0.1:8080 http://www.google.com/")
+		logger.Fatal("usage: " + os.Args[0] + " -socks-server=127.0.0.1:8000 http://www.google.com/")
 	}
 
 	urlToFetch := flag.Arg(0)

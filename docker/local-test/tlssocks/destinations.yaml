@@ -6,16 +6,11 @@ www.heise.de:
   users:
     - jan
     - peter
-
-echo:
-  ports: 
-    - 8080
-  users:
-    - jan
+    - test
 
 www.google.com:
   ports: 
     - 443
   users:
     - peter
-...
+    - test
