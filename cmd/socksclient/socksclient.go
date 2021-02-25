@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"time"
@@ -13,29 +13,38 @@ import (
 	"go.uber.org/zap"
 )
 
-var logger *zap.Logger
-
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l
-}
-
 func main() {
-	defer logger.Sync()
+	log, _ := zap.NewProduction()
+	defer log.Sync()
 	flagSocksServer := flag.String("socks-server", "socks5://test:test@127.0.0.1:8000", "addr of socks server like socks://user:pass@127.0.0.1:8000")
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
-		logger.Fatal("usage: " + os.Args[0] + " -socks-server=127.0.0.1:8000 http://www.google.com/")
+		log.Fatal("usage: " + os.Args[0] + " -socks-server=127.0.0.1:8000 http://www.google.com/")
 	}
 
 	urlToFetch := flag.Arg(0)
 
 	proxyURL, errProxyURL := url.Parse(*flagSocksServer)
 	if errProxyURL != nil {
-		logger.Fatal("invalid proxy server:", zap.Error(errProxyURL))
+		log.Fatal("invalid proxy server:", zap.Error(errProxyURL))
 	}
 
+	response, err := newClient(proxyURL).Get(urlToFetch)
+	if err != nil {
+		log.Fatal("could not GET", zap.Error(err), zap.String("url", urlToFetch))
+	}
+	defer response.Body.Close()
+
+	respBytes, err := httputil.DumpResponse(response, true)
+	if err != nil {
+		log.Fatal("failed httputil.DumpResponse", zap.Error(err))
+	}
+
+	fmt.Println(string(respBytes))
+}
+
+func newClient(proxyURL *url.URL) *http.Client {
 	transport := &http.Transport{
 		Proxy: http.ProxyURL(proxyURL),
 		DialContext: (&net.Dialer{
@@ -48,17 +57,7 @@ func main() {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-	client := &http.Client{
+	return &http.Client{
 		Transport: transport,
 	}
-	response, errGet := client.Get(urlToFetch)
-	if errGet != nil {
-		logger.Fatal("could not GET", zap.String("url", urlToFetch))
-	}
-	defer response.Body.Close()
-	bodyBytes, errRead := ioutil.ReadAll(response.Body)
-	if errRead != nil {
-		logger.Fatal("could not read response body", zap.Error(errRead))
-	}
-	fmt.Println(string(bodyBytes))
 }

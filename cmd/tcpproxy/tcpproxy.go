@@ -7,15 +7,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var logger *zap.Logger
-
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l
-}
-
 func main() {
+	logger, _ := zap.NewProduction()
 	defer logger.Sync()
+
 	flagDestination := flag.String("destination", "", "address of destination server like 127.0.0.1:8000")
 	flagAddr := flag.String("addr", "", "where to listen like 127.0.0.1:8001")
 

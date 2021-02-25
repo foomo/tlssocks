@@ -50,7 +50,9 @@ services:
         max-file: "10"
 
   tlssocks:
-    image: foomo/tlssocks:latest
+    build:
+      context: ../..
+      dockerfile: docker/tlssocks/Dockerfile
     restart: unless-stopped
     command:
       - "-addr=0.0.0.0:8001"

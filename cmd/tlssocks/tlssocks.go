@@ -25,53 +25,57 @@ func init() {
 }
 
 type socksAuthenticator struct {
-	Destinations  map[string]*Destination
+	Destinations map[string]*Destination
+
 	resolvedNames map[string][]string
 }
 
-func newSocksAuthenticator(destinations map[string]*Destination) (suxx5 *socksAuthenticator, err error) {
-	suxx5 = &socksAuthenticator{
+func newSocksAuthenticator(destinations map[string]*Destination) (*socksAuthenticator, error) {
+	suxa := &socksAuthenticator{
 		Destinations: destinations,
 	}
-	names := []string{}
+	names := make([]string, 0, len(destinations))
 	for name := range destinations {
 		names = append(names, name)
 	}
-	resolvedNames, errResolveNames := resolveNames(names)
-	if errResolveNames != nil {
-		err = errResolveNames
-		return
+
+	resolvedNames, err := resolveNames(names)
+	if err != nil {
+		return nil, err
 	}
-	suxx5.resolvedNames = resolvedNames
+	suxa.resolvedNames = resolvedNames
+
 	go func() {
 		time.Sleep(time.Second * 10)
-		resolvedNames, errResolveNames := resolveNames(names)
-		if errResolveNames == nil {
-			suxx5.resolvedNames = resolvedNames
+
+		resolvedNames, err := resolveNames(names)
+		if err == nil {
+			suxa.resolvedNames = resolvedNames
 		} else {
-			logger.Warn("could not resolve names: " + errResolveNames.Error())
+			logger.Warn("could not resolve names: " + err.Error())
 		}
 	}()
-	return
+	return suxa, nil
 }
 
-func resolveNames(names []string) (newResolvedNames map[string][]string, err error) {
-	newResolvedNames = map[string][]string{}
+func resolveNames(names []string) (map[string][]string, error) {
+	newResolvedNames := map[string][]string{}
 	for _, name := range names {
-		addrs, errLookup := net.LookupHost(name)
-		if errLookup != nil {
-			err = errLookup
-			return
+		addrs, err := net.LookupHost(name)
+		if err != nil {
+			return nil, err
 		}
 		newResolvedNames[name] = addrs
 	}
-	return
+	return newResolvedNames, nil
 }
+
 func (suxx5 *socksAuthenticator) Allow(ctx context.Context, req *socks5.Request) (newCtx context.Context, allowed bool) {
 	allowed = false
 	newCtx = ctx
 	zapTo := zap.String("to", req.DestAddr.String())
 	zapUser := zap.String("for", req.AuthContext.Payload["Username"])
+
 	for name, ips := range suxx5.resolvedNames {
 		zapName := zap.String("name", name)
 		for _, ip := range ips {
@@ -97,22 +101,12 @@ func (suxx5 *socksAuthenticator) Allow(ctx context.Context, req *socks5.Request)
 									}
 								}
 								if !allowed {
-									logger.Info(
-										"denied",
-										zapName,
-										zapTo,
-										zapUser,
-									)
+									logger.Info("denied", zapName, zapTo, zapUser)
 									return
 								}
 							}
 							if allowed {
-								logger.Info(
-									"allowed",
-									zapName,
-									zapTo,
-									zapUser,
-								)
+								logger.Info("allowed", zapName, zapTo, zapUser)
 
 								allowed = true
 								return
@@ -134,8 +128,7 @@ func (s Credentials) Valid(user, password string) bool {
 	if !ok {
 		return false
 	}
-	errHash := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
-	return errHash == nil
+	return nil == bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
 
 func must(err error, comment ...interface{}) {
@@ -158,19 +151,19 @@ func main() {
 	flagKey := flag.String("key", "", "path to server key.pem")
 	flag.Parse()
 
-	destinationBytes, errReadDestinationBytes := ioutil.ReadFile(*flagDestinationsFile)
-	must(errReadDestinationBytes, "can not read destinations config")
+	destinationBytes, err := ioutil.ReadFile(*flagDestinationsFile)
+	must(err, "can not read destinations config")
 
 	destinations := map[string]*Destination{}
 
 	must(yaml.Unmarshal(destinationBytes, destinations), "can not parse destinations")
 
-	passwordHashes, errParsePasswords := htpasswd.ParseHtpasswdFile(*flagHtpasswdFile)
-	must(errParsePasswords, "basic auth file sucks")
+	passwordHashes, err := htpasswd.ParseHtpasswdFile(*flagHtpasswdFile)
+	must(err, "basic auth file sucks")
 	credentials := Credentials(passwordHashes)
 
-	suxx5, errSuxx5 := newSocksAuthenticator(destinations)
-	must(errSuxx5)
+	suxx5, err := newSocksAuthenticator(destinations)
+	must(err)
 
 	autenticator := socks5.UserPassAuthenticator{Credentials: credentials}
 
@@ -188,21 +181,21 @@ func main() {
 		zap.String("key", *flagKey),
 	)
 
-	cert, errLoadKeyPair := tls.LoadX509KeyPair(*flagCert, *flagKey)
-	if errLoadKeyPair != nil {
-		logger.Fatal("could not load server key pair", zap.Error(errLoadKeyPair))
+	cert, err := tls.LoadX509KeyPair(*flagCert, *flagKey)
+	if err != nil {
+		logger.Fatal("could not load server key pair", zap.Error(err))
 	}
 
-	listener, errListen := tls.Listen("tcp", *flagAddr, &tls.Config{Certificates: []tls.Certificate{cert}})
-	if errListen != nil {
+	listener, err := tls.Listen("tcp", *flagAddr, &tls.Config{Certificates: []tls.Certificate{cert}})
+	if err != nil {
 		logger.Fatal(
 			"could not listen for tcp / tls",
 			zap.String("addr", *flagAddr),
-			zap.Error(errListen),
+			zap.Error(err),
 		)
 	}
 	logger.Fatal(
-		"server fucked up",
+		"server failed",
 		zap.Error(server.Serve(listener)),
 	)
 }
