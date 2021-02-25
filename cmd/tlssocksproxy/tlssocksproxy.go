@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -23,6 +22,7 @@ import (
 const (
 	defaultTimeout           = 180 * time.Second
 	defaultPrometheusAddress = ":9200"
+	connDeadline             = 60 * time.Second
 )
 
 func main() {
@@ -85,13 +85,16 @@ func serve(ctx context.Context, logger *zap.Logger, localConn net.Conn, remoteAd
 	defer silentClose(remoteConn)
 
 	p := &proxy{
-		log:   logger,
-		wait:  make(chan struct{}),
-		lconn: localConn,
+		log:  logger,
+		wait: make(chan struct{}),
 	}
 
-	go p.pipe(ctx, remoteConn, localConn)
-	go p.pipe(ctx, localConn, remoteConn)
+	deadline := start.Add(connDeadline)
+	_ = localConn.SetDeadline(deadline)
+	_ = remoteConn.SetDeadline(deadline)
+
+	go p.pipe(ctx, remoteConn, localConn, true)
+	go p.pipe(ctx, localConn, remoteConn, false)
 
 	<-p.wait
 	logger.Info(
@@ -108,14 +111,11 @@ type proxy struct {
 	log           *zap.Logger
 	sentBytes     uint64
 	receivedBytes uint64
-	lconn         io.ReadWriteCloser
 	wait          chan struct{}
-	erredMU       sync.Mutex
 	erred         uint32
 }
 
-func (p *proxy) pipe(ctx context.Context, dst io.Writer, src io.Reader) {
-	isLocal := src == p.lconn
+func (p *proxy) pipe(ctx context.Context, dst io.Writer, src io.Reader, isLocal bool) {
 	buff := make([]byte, 65535)
 	for {
 		if ctx.Err() != nil {
@@ -150,7 +150,6 @@ func (p *proxy) err(message string, err error) {
 		p.log.Warn(message, zap.Error(err))
 	}
 
-	p.wait <- struct{}{}
 	atomic.StoreUint32(&p.erred, 1)
 	close(p.wait)
 }
