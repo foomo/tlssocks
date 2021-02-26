@@ -1,37 +1,30 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"net"
 	"time"
 
 	"github.com/armon/go-socks5"
 	"github.com/foomo/htpasswd"
+	"github.com/foomo/tlssocks/cmd"
 	"go.uber.org/zap"
-
 	"golang.org/x/crypto/bcrypt"
-	"golang.org/x/net/context"
 	"gopkg.in/yaml.v2"
 )
 
-var logger *zap.Logger
-
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l
-}
-
-type socksAuthenticator struct {
-	Destinations map[string]*Destination
-
+type authenticator struct {
+	log           *zap.Logger
+	Destinations  map[string]*Destination
 	resolvedNames map[string][]string
 }
 
-func newSocksAuthenticator(destinations map[string]*Destination) (*socksAuthenticator, error) {
-	suxa := &socksAuthenticator{
+func newAuthenticator(log *zap.Logger, destinations map[string]*Destination) (*authenticator, error) {
+	sa := &authenticator{
+		log:          log,
 		Destinations: destinations,
 	}
 	names := make([]string, 0, len(destinations))
@@ -43,19 +36,19 @@ func newSocksAuthenticator(destinations map[string]*Destination) (*socksAuthenti
 	if err != nil {
 		return nil, err
 	}
-	suxa.resolvedNames = resolvedNames
+	sa.resolvedNames = resolvedNames
 
 	go func() {
 		time.Sleep(time.Second * 10)
 
 		resolvedNames, err := resolveNames(names)
 		if err == nil {
-			suxa.resolvedNames = resolvedNames
+			sa.resolvedNames = resolvedNames
 		} else {
-			logger.Warn("could not resolve names: " + err.Error())
+			log.Warn("could not resolve names", zap.Error(err))
 		}
 	}()
-	return suxa, nil
+	return sa, nil
 }
 
 func resolveNames(names []string) (map[string][]string, error) {
@@ -70,17 +63,17 @@ func resolveNames(names []string) (map[string][]string, error) {
 	return newResolvedNames, nil
 }
 
-func (suxx5 *socksAuthenticator) Allow(ctx context.Context, req *socks5.Request) (newCtx context.Context, allowed bool) {
+func (sa *authenticator) Allow(ctx context.Context, req *socks5.Request) (newCtx context.Context, allowed bool) {
 	allowed = false
 	newCtx = ctx
 	zapTo := zap.String("to", req.DestAddr.String())
 	zapUser := zap.String("for", req.AuthContext.Payload["Username"])
 
-	for name, ips := range suxx5.resolvedNames {
+	for name, ips := range sa.resolvedNames {
 		zapName := zap.String("name", name)
 		for _, ip := range ips {
 			if ip == req.DestAddr.IP.String() {
-				destination, destinationOK := suxx5.Destinations[name]
+				destination, destinationOK := sa.Destinations[name]
 				if destinationOK {
 					for _, allowedPort := range destination.Ports {
 						if allowedPort == req.DestAddr.Port {
@@ -91,7 +84,7 @@ func (suxx5 *socksAuthenticator) Allow(ctx context.Context, req *socks5.Request)
 								userNameInContext, userNameInContextOK := req.AuthContext.Payload["Username"]
 								if !userNameInContextOK {
 									// explicit user expected, but not found
-									logger.Info("denied - no user found", zapName, zapTo)
+									sa.log.Info("denied - no user found", zapName, zapTo)
 									return
 								}
 								for _, userName := range destination.Users {
@@ -101,12 +94,12 @@ func (suxx5 *socksAuthenticator) Allow(ctx context.Context, req *socks5.Request)
 									}
 								}
 								if !allowed {
-									logger.Info("denied", zapName, zapTo, zapUser)
+									sa.log.Info("denied", zapName, zapTo, zapUser)
 									return
 								}
 							}
 							if allowed {
-								logger.Info("allowed", zapName, zapTo, zapUser)
+								sa.log.Info("allowed", zapName, zapTo, zapUser)
 
 								allowed = true
 								return
@@ -117,7 +110,7 @@ func (suxx5 *socksAuthenticator) Allow(ctx context.Context, req *socks5.Request)
 			}
 		}
 	}
-	logger.Info("denied", zapTo, zapUser)
+	sa.log.Info("denied", zapTo, zapUser)
 	return
 }
 
@@ -131,19 +124,15 @@ func (s Credentials) Valid(user, password string) bool {
 	return nil == bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
 
-func must(err error, comment ...interface{}) {
-	if err != nil {
-		logger.Fatal(fmt.Sprint(comment...), zap.Error(err))
-	}
-}
-
 type Destination struct {
 	Users []string
 	Ports []int
 }
 
 func main() {
-	defer logger.Sync()
+	log, _ := zap.NewProduction()
+	defer log.Sync()
+
 	flagAddr := flag.String("addr", "", "where to listen like 127.0.0.1:8000")
 	flagHtpasswdFile := flag.String("auth", "", "basic auth file")
 	flagDestinationsFile := flag.String("destinations", "", "file with destinations config")
@@ -152,18 +141,18 @@ func main() {
 	flag.Parse()
 
 	destinationBytes, err := ioutil.ReadFile(*flagDestinationsFile)
-	must(err, "can not read destinations config")
+	cmd.TryFatal(log, err, "can not read destinations config")
 
 	destinations := map[string]*Destination{}
 
-	must(yaml.Unmarshal(destinationBytes, destinations), "can not parse destinations")
+	cmd.TryFatal(log, yaml.Unmarshal(destinationBytes, destinations), "can not parse destinations")
 
 	passwordHashes, err := htpasswd.ParseHtpasswdFile(*flagHtpasswdFile)
-	must(err, "basic auth file sucks")
+	cmd.TryFatal(log, err, "basic auth file sucks")
 	credentials := Credentials(passwordHashes)
 
-	suxx5, err := newSocksAuthenticator(destinations)
-	must(err)
+	suxx5, err := newAuthenticator(log, destinations)
+	cmd.TryFatal(log, err, "newAuthenticator failed")
 
 	autenticator := socks5.UserPassAuthenticator{Credentials: credentials}
 
@@ -172,9 +161,9 @@ func main() {
 		AuthMethods: []socks5.Authenticator{autenticator},
 	}
 	server, err := socks5.New(conf)
-	must(err)
+	cmd.TryFatal(log, err, "socks5.New failed")
 
-	logger.Info(
+	log.Info(
 		"starting tls server",
 		zap.String("addr", *flagAddr),
 		zap.String("cert", *flagCert),
@@ -182,20 +171,10 @@ func main() {
 	)
 
 	cert, err := tls.LoadX509KeyPair(*flagCert, *flagKey)
-	if err != nil {
-		logger.Fatal("could not load server key pair", zap.Error(err))
-	}
+	cmd.TryFatal(log, err, "could not load server key pair")
 
 	listener, err := tls.Listen("tcp", *flagAddr, &tls.Config{Certificates: []tls.Certificate{cert}})
-	if err != nil {
-		logger.Fatal(
-			"could not listen for tcp / tls",
-			zap.String("addr", *flagAddr),
-			zap.Error(err),
-		)
-	}
-	logger.Fatal(
-		"server failed",
-		zap.Error(server.Serve(listener)),
-	)
+	cmd.TryFatal(log, err, "could not listen for tcp / tls", zap.String("addr", *flagAddr))
+
+	cmd.TryFatal(log, server.Serve(listener), "server failed")
 }

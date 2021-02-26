@@ -3,19 +3,13 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"net"
-	"net/http"
-	"os"
-	"os/signal"
 	"sync/atomic"
-	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/foomo/tlssocks/cmd"
 	"go.uber.org/zap"
 )
 
@@ -45,7 +39,7 @@ func main() {
 		log.Fatal("Error listening for incoming socks connections", zap.Error(err))
 	}
 
-	defer silentClose(localListener)
+	defer cmd.SilentClose(localListener)
 
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: *flagInsecureSkipVerify,
@@ -53,9 +47,9 @@ func main() {
 	if tlsConfig.InsecureSkipVerify {
 		log.Warn("Running without verification of the tls server - this is dangerous")
 	}
-	ctx := ctxCancelOnOsSignal(log)
+	ctx := cmd.CtxCancelOnOsSignal(log)
 
-	go runPrometheusHandler(ctx, log, defaultPrometheusAddress)
+	go cmd.RunPrometheusHandler(ctx, log, defaultPrometheusAddress)
 
 	var connID uint64
 	for {
@@ -72,8 +66,8 @@ func serve(ctx context.Context, logger *zap.Logger, localConn net.Conn, remoteAd
 	start := time.Now()
 
 	// Recover if a panic occurs
-	defer recoverAndLogPanic(logger)
-	defer silentClose(localConn)
+	defer cmd.RecoverAndLogPanic(logger)
+	defer cmd.SilentClose(localConn)
 
 	remoteConn, err := tls.DialWithDialer(&net.Dialer{
 		Timeout: defaultTimeout,
@@ -82,7 +76,7 @@ func serve(ctx context.Context, logger *zap.Logger, localConn net.Conn, remoteAd
 		logger.Warn("could not reach remote tls server", zap.Error(err))
 		return
 	}
-	defer silentClose(remoteConn)
+	defer cmd.SilentClose(remoteConn)
 
 	p := &proxy{
 		log:  logger,
@@ -152,63 +146,4 @@ func (p *proxy) err(message string, err error) {
 
 	atomic.StoreUint32(&p.erred, 1)
 	close(p.wait)
-}
-
-func recoverAndLogPanic(logger *zap.Logger) {
-	if r := recover(); r != nil {
-		var err error
-		switch x := r.(type) {
-		case string:
-			err = errors.New(x)
-		case error:
-			err = x
-		default:
-			err = fmt.Errorf("unknown panic of type: %T", r)
-		}
-		logger.Error("Panic occurred in serve thread", zap.Error(err))
-	}
-}
-
-func runPrometheusHandler(ctx context.Context, logger *zap.Logger, address string) {
-	h := http.NewServeMux()
-	h.Handle("/metrics", promhttp.Handler())
-	server := &http.Server{Addr: address, Handler: h}
-
-	go func() {
-		if err := server.ListenAndServe(); err != nil {
-			logger.Fatal("Failed to start prometheus handler", zap.Error(err))
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		logger.Info("Shutdown prometheus handler in progress")
-		if err := server.Shutdown(ctx); err != nil && err != context.Canceled {
-			logger.Fatal("Failed to Shutdown prometheus handler", zap.Error(err))
-		}
-	}
-}
-
-func silentClose(closer io.Closer) {
-	_ = closer.Close()
-}
-
-func ctxCancelOnOsSignal(logger *zap.Logger) context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGABRT)
-
-	go func() {
-		defer func() {
-			signal.Stop(c)
-			cancel()
-		}()
-		select {
-		case c2 := <-c:
-			logger.Info("Received interrupt signal and cancelling context", zap.String("signal", c2.String()))
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-	return ctx
 }

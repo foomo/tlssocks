@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/foomo/tlssocks/cmd"
 	"go.uber.org/zap"
 )
 
@@ -25,21 +26,15 @@ func main() {
 
 	urlToFetch := flag.Arg(0)
 
-	proxyURL, errProxyURL := url.Parse(*flagSocksServer)
-	if errProxyURL != nil {
-		log.Fatal("invalid proxy server:", zap.Error(errProxyURL))
-	}
+	proxyURL, err := url.Parse(*flagSocksServer)
+	cmd.TryFatal(log, err, "invalid proxy server URL")
 
 	response, err := newClient(proxyURL).Get(urlToFetch)
-	if err != nil {
-		log.Fatal("could not GET", zap.Error(err), zap.String("url", urlToFetch))
-	}
-	defer response.Body.Close()
+	cmd.TryFatal(log, err, "could not GET", zap.String("url", urlToFetch))
+	defer cmd.SilentClose(response.Body)
 
 	respBytes, err := httputil.DumpResponse(response, true)
-	if err != nil {
-		log.Fatal("failed httputil.DumpResponse", zap.Error(err))
-	}
+	cmd.TryFatal(log, err, "failed httputil.DumpResponse")
 
 	fmt.Println(string(respBytes))
 }
