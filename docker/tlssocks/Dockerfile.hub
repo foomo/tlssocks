@@ -1,3 +1,4 @@
+# Docker file for hub foomo/tlssocks
 ##############################
 ###### STAGE: BUILD     ######
 ##############################
@@ -7,17 +8,11 @@ WORKDIR /src
 
 COPY ./go.mod ./go.sum ./
 
-# NOT SUPPORTED BY DOCKER HUB
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    go mod download -x
-# RUN go mod download
+RUN go mod download -x
 
 COPY ./ ./
 
-# NOT SUPPORTED BY DOCKER HUB
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -o /tlssocks cmd/tlssocks/tlssocks.go cmd/tlssocks/authentication.go
+RUN CGO_ENABLED=0 go build -trimpath -o /tlssocks cmd/tlssocks/tlssocks.go cmd/tlssocks/authentication.go
 
 ##############################
 ###### STAGE: CONTAINER     ######

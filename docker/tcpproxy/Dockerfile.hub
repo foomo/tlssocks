@@ -1,0 +1,26 @@
+# Docker file for hub foomo/tcpproxy
+##############################
+###### STAGE: BUILD     ######
+##############################
+FROM golang:alpine AS build-env
+
+WORKDIR /src
+
+COPY ./go.mod ./go.sum ./
+
+RUN go mod download -x
+
+COPY ./ ./
+
+RUN CGO_ENABLED=0 go build -trimpath -o /tcpproxy cmd/tcpproxy/tcpproxy.go
+
+##############################
+###### STAGE: CONTAINER     ######
+##############################
+FROM alpine
+
+COPY --from=build-env /tcpproxy /usr/sbin/tcpproxy
+
+ENTRYPOINT [ "/usr/sbin/tcpproxy" ]
+
+CMD ["/usr/sbin/tlssocks"]

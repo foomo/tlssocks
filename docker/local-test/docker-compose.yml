@@ -20,7 +20,9 @@ services:
         max-file: "10"   
 
   tunneltunnel:
-    image: foomo/tcpproxy:latest
+    build:
+      context: ../..
+      dockerfile: docker/tcpproxy/Dockerfile
     restart: unless-stopped
     command:
       - "-addr=0.0.0.0:8000"
@@ -36,7 +38,9 @@ services:
         max-file: "10"   
 
   tunnel:
-    image: foomo/tcpproxy:latest
+    build:
+      context: ../..
+      dockerfile: docker/tcpproxy/Dockerfile
     restart: unless-stopped
     command:
       - "-addr=0.0.0.0:8000"

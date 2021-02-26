@@ -11,21 +11,20 @@ COPY ./go.mod ./go.sum ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go mod download -x
-# RUN go mod download
 
 COPY ./ ./
 
 # NOT SUPPORTED BY DOCKER HUB
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -o /tlssocks cmd/tlssocks/tlssocks.go cmd/tlssocks/authentication.go
+    CGO_ENABLED=0 go build -trimpath -o /tcpproxy cmd/tcpproxy/tcpproxy.go
 
 ##############################
 ###### STAGE: CONTAINER     ######
 ##############################
 FROM alpine
 
-COPY --from=build-env /tlssocks /usr/sbin/tlssocks
+COPY --from=build-env /tcpproxy /usr/sbin/tcpproxy
 
-ENTRYPOINT [ "/usr/sbin/tlssocks" ]
+ENTRYPOINT [ "/usr/sbin/tcpproxy" ]
 
 CMD ["/usr/sbin/tlssocks"]
