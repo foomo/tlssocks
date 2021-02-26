@@ -1,18 +1,17 @@
-version: "2.0"
+version: "2.6"
 
 services:
 
   socksproxy:
-    image: foomo/tlssocksproxy:latest
+    build:
+      context: ../..
+      dockerfile: docker/tlssocksproxy/Dockerfile
     restart: unless-stopped
     command:
       - "-addr=0.0.0.0:8000"
       - "-server=tunneltunnel:8000"
       - "-insecure-skip-verify"
-    networks:
-      - public
-      - default
-    ports: 
+    ports:
       - 8000:8000
     logging:
       driver: "json-file"
@@ -21,11 +20,15 @@ services:
         max-file: "10"   
 
   tunneltunnel:
-    image: foomo/tcpproxy:latest
+    build:
+      context: ../..
+      dockerfile: docker/tcpproxy/Dockerfile
     restart: unless-stopped
     command:
       - "-addr=0.0.0.0:8000"
       - "-destination=tunnel:8000"
+    expose:
+      - 8000
     networks:
       - default
     logging:
@@ -35,35 +38,25 @@ services:
         max-file: "10"   
 
   tunnel:
-    image: foomo/tcpproxy:latest
+    build:
+      context: ../..
+      dockerfile: docker/tcpproxy/Dockerfile
     restart: unless-stopped
     command:
       - "-addr=0.0.0.0:8000"
       - "-destination=tlssocks:8001"
-    networks:
-      - default
+    expose:
+      - 8000
     logging:
       driver: "json-file"
       options:
         max-size: "100m"
-        max-file: "10"   
-
-  echo:
-    image: hashicorp/http-echo
-    command: 
-      - "-listen=:8080"
-      - "-text=hello-world"
-    networks:
-      - default
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "10"   
-
+        max-file: "10"
 
   tlssocks:
-    image: foomo/tlssocks:latest
+    build:
+      context: ../..
+      dockerfile: docker/tlssocks/Dockerfile
     restart: unless-stopped
     command:
       - "-addr=0.0.0.0:8001"
@@ -71,8 +64,8 @@ services:
       - "-destinations=/tlssocks/destinations.yaml"
       - "-cert=/tlssocks/certificate.crt"
       - "-key=/tlssocks/certificate.key"
-    networks:
-      - default
+    expose:
+      - 8001
     volumes:
       - ./tlssocks:/tlssocks
     logging:
@@ -80,8 +73,3 @@ services:
       options:
         max-size: "100m"
         max-file: "10"      
-
-networks:
-  public:
-    external:
-      name: public

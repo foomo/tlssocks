@@ -15,22 +15,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 COPY ./ ./
 
-# CGO_ENABLED=1 go build -race ...
-# RUN apk add build-base
-
 # NOT SUPPORTED BY DOCKER HUB
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
-
-# RUN CGO_ENABLED=0 go build -trimpath -o /tlssocksproxy cmd/tlssocksproxy/tlssocksproxy.go
+    CGO_ENABLED=0 go build -trimpath -o /tlssocks cmd/tlssocks/tlssocks.go cmd/tlssocks/authentication.go
 
 ##############################
 ###### STAGE: CONTAINER     ######
 ##############################
 FROM alpine
 
-COPY --from=build-env /tlssocksproxy /usr/sbin/tlssocksproxy
+COPY --from=build-env /tlssocks /usr/sbin/tlssocks
 
-ENTRYPOINT [ "/usr/sbin/tlssocksproxy" ]
+ENTRYPOINT [ "/usr/sbin/tlssocks" ]
 
-CMD ["/usr/sbin/tlssocksproxy"]
+CMD ["/usr/sbin/tlssocks"]

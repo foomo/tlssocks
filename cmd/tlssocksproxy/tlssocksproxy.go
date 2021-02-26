@@ -6,166 +6,154 @@ import (
 	"flag"
 	"io"
 	"net"
-	"net/http"
+	"sync/atomic"
 	"time"
 
-	"github.com/foomo/tlssocks"
-	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/foomo/tlssocks/cmd"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
-)
-
-var (
-	logger *zap.Logger
 )
 
 const (
 	defaultTimeout           = 180 * time.Second
 	defaultPrometheusAddress = ":9200"
+	connDeadline             = 60 * time.Second
 )
 
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l
-}
-
-func copyData(streamName string, dst io.Writer, src io.Reader) error {
-	_, err := io.Copy(dst, src)
-	if err != nil {
-		return errors.Wrapf(err, "failed to copy stream %s", streamName)
-	}
-	return nil
-}
+var (
+	proxyServeSummary = cmd.NewSummaryVector(
+		"serve_duration_seconds",
+		"Measures serve duration for mitsproxy in seconds",
+		nil,
+	)
+)
 
 func main() {
-	defer logger.Sync()
+	log, _ := zap.NewProduction()
+	defer log.Sync()
 
 	flagInsecureSkipVerify := flag.Bool("insecure-skip-verify", false, "allow insecure skipping of peer verification, when talking to the server")
-	flagAddr := flag.String("addr", "0.0.0.0:8080", "address to listen to like 0.0.0.0:8001")
-	flagAddrServer := flag.String("server", "", "address of the tls socks server like 0.0.0.0:8000")
+	flagLocalAddr := flag.String("addr", "0.0.0.0:8080", "address to listen to like 0.0.0.0:8001")
+	flagRemoteAddr := flag.String("server", "", "address of the tls socks server like 0.0.0.0:8000")
 	flag.Parse()
 
-	logger.Info(
+	log.Info(
 		"Starting socks proxy to listen on addr and forward requests to server",
-		zap.String("addr", *flagAddr),
-		zap.String("server", *flagAddrServer),
+		zap.String("local_addr", *flagLocalAddr),
+		zap.String("remote_addr", *flagRemoteAddr),
 	)
 
-	socks5Listener, errListenSocks5 := net.Listen("tcp", *flagAddr)
-	if errListenSocks5 != nil {
-		logger.Fatal(
-			"Error listening for incoming socks connections",
-			zap.Error(errListenSocks5),
-		)
+	localListener, err := net.Listen("tcp", *flagLocalAddr)
+	if err != nil {
+		log.Fatal("Error listening for incoming socks connections", zap.Error(err))
 	}
 
-	defer silentClose(socks5Listener)
+	defer cmd.SilentClose(localListener)
 
-	var tlsConfig *tls.Config
-
-	if *flagInsecureSkipVerify {
-		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true,
-		}
-		logger.Warn("Running without verification of the tls server - this is dangerous")
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: *flagInsecureSkipVerify,
 	}
-	ctx := context.Background()
+	if tlsConfig.InsecureSkipVerify {
+		log.Warn("Running without verification of the tls server - this is dangerous")
+	}
+	ctx := cmd.CtxCancelOnOsSignal(log)
 
-	go runPrometheusHandler(ctx, defaultPrometheusAddress)
+	go cmd.RunPrometheusHandler(ctx, log, defaultPrometheusAddress)
 
+	var connID uint64
 	for {
-		socksConn, err := socks5Listener.Accept()
+		localConn, err := localListener.Accept()
 		if err != nil {
-			logger.Fatal(
-				"error accepting incoming connections",
-				zap.Error(err),
-			)
+			log.Fatal("error accepting incoming connections", zap.Error(err))
 		}
-		logger.Info(
-			"socks client connected",
-			zap.String("from", socksConn.RemoteAddr().String()),
-		)
-		go serve(ctx, socksConn, *flagAddrServer, tlsConfig)
+		connID++
+		go serve(ctx, log, localConn, *flagRemoteAddr, tlsConfig, connID)
 	}
 }
 
-func serve(ctx context.Context, srcConn io.ReadWriteCloser, destinationAddress string, tlsConfig *tls.Config) {
-	// Recover if a panic occurs
-	defer recoverAndLogPanic()
-	defer silentClose(srcConn)
-
-	// Cancel context
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
+func serve(ctx context.Context, logger *zap.Logger, localConn net.Conn, remoteAddress string, tlsConfig *tls.Config, connID uint64) {
 	start := time.Now()
 
-	dstConn, errDial := tls.DialWithDialer(&net.Dialer{
-		KeepAlive: -1,
-		Timeout:   defaultTimeout,
-	}, "tcp", destinationAddress, tlsConfig)
+	// Recover if a panic occurs
+	defer cmd.RecoverAndLogPanic(logger)
+	defer cmd.SilentClose(localConn)
 
-	if errDial != nil {
-		logger.Warn(
-			"could not reach tls server",
-			zap.Error(errDial),
-		)
+	remoteConn, err := tls.DialWithDialer(&net.Dialer{
+		Timeout: defaultTimeout,
+	}, "tcp", remoteAddress, tlsConfig)
+	if err != nil {
+		logger.Warn("could not reach remote tls server", zap.Error(err))
 		return
 	}
-	defer silentClose(dstConn)
+	defer cmd.SilentClose(remoteConn)
 
-	group, gctx := errgroup.WithContext(ctx)
-
-	group.Go(func() error {
-		srcConn := tlssocks.NewBufferedReader(gctx, srcConn)
-		return copyData("conn->socksConn", dstConn, srcConn)
-	})
-	group.Go(func() error {
-		dstConn := tlssocks.NewBufferedReader(gctx, dstConn)
-		return copyData("socksConn->conn", srcConn, dstConn)
-	})
-
-	if err := group.Wait(); err != nil {
-		switch {
-		case err == io.ErrUnexpectedEOF,
-			err == io.ErrClosedPipe,
-			err == io.EOF,
-			err.Error() == "broken pipe":
-			logger.Warn("Error occurred, while copying data", zap.Error(err))
-		default:
-			logger.Error("Unexpected error occurred while copying the data", zap.Error(err))
-		}
+	p := &proxy{
+		log:  logger,
+		wait: make(chan struct{}),
 	}
 
+	deadline := start.Add(connDeadline)
+	_ = localConn.SetDeadline(deadline)
+	_ = remoteConn.SetDeadline(deadline)
+
+	go p.pipe(ctx, remoteConn, localConn, true)
+	go p.pipe(ctx, localConn, remoteConn, false)
+
+	<-p.wait
 	logger.Info(
 		"request served",
-		zap.Duration("duration", time.Now().Sub(start)),
+		zap.Duration("duration", time.Since(start)),
+		zap.Uint64("bytes_sent", atomic.LoadUint64(&p.sentBytes)),
+		zap.Uint64("bytes_received", atomic.LoadUint64(&p.receivedBytes)),
+		zap.Uint64("conn_id", connID),
+		zap.String("from", localConn.RemoteAddr().String()),
 	)
+
+	proxyServeSummary.WithLabelValues().Observe(time.Since(start).Seconds())
 }
 
-func recoverAndLogPanic() {
-	if r := recover(); r != nil {
-		var err error
-		switch x := r.(type) {
-		case string:
-			err = errors.New(x)
-		case error:
-			err = x
-		default:
-			// Fallback err (per specs, error strings should be lowercase w/o punctuation
-			err = errors.New("unknown panic")
+type proxy struct {
+	log           *zap.Logger
+	sentBytes     uint64
+	receivedBytes uint64
+	wait          chan struct{}
+	erred         uint32
+}
+
+func (p *proxy) pipe(ctx context.Context, dst io.Writer, src io.Reader, isLocal bool) {
+	buff := make([]byte, 65535)
+	for {
+		if ctx.Err() != nil {
+			p.err("context error", ctx.Err())
+			return
 		}
-		logger.Error("Panic occurred in serve thread", zap.Error(err))
+
+		n, err := src.Read(buff[:])
+		if err != nil {
+			p.err("Read failed", err)
+			return
+		}
+
+		n, err = dst.Write(buff[:n])
+		if err != nil {
+			p.err("Write failed", err)
+			return
+		}
+		if isLocal {
+			atomic.AddUint64(&p.sentBytes, uint64(n))
+		} else {
+			atomic.AddUint64(&p.receivedBytes, uint64(n))
+		}
 	}
 }
 
-func runPrometheusHandler(_ context.Context, address string) {
-	h := http.NewServeMux()
-	h.Handle("/metrics", promhttp.Handler())
-	logger.Fatal("Failed to start prometheus handler", zap.Error(http.ListenAndServe(address, h)))
-}
+func (p *proxy) err(message string, err error) {
+	if atomic.LoadUint32(&p.erred) == 1 {
+		return
+	}
+	if err != io.EOF {
+		p.log.Warn(message, zap.Error(err))
+	}
 
-func silentClose(closer io.Closer) {
-	_ = closer.Close()
+	atomic.StoreUint32(&p.erred, 1)
+	close(p.wait)
 }
