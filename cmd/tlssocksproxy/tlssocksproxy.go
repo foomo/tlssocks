@@ -19,6 +19,14 @@ const (
 	connDeadline             = 60 * time.Second
 )
 
+var (
+	proxyServeSummary = cmd.NewSummaryVector(
+		"serve_duration_seconds",
+		"Measures serve duration for mitsproxy in seconds",
+		nil,
+	)
+)
+
 func main() {
 	log, _ := zap.NewProduction()
 	defer log.Sync()
@@ -93,12 +101,14 @@ func serve(ctx context.Context, logger *zap.Logger, localConn net.Conn, remoteAd
 	<-p.wait
 	logger.Info(
 		"request served",
-		zap.Duration("duration", time.Now().Sub(start)),
+		zap.Duration("duration", time.Since(start)),
 		zap.Uint64("bytes_sent", atomic.LoadUint64(&p.sentBytes)),
 		zap.Uint64("bytes_received", atomic.LoadUint64(&p.receivedBytes)),
 		zap.Uint64("conn_id", connID),
 		zap.String("from", localConn.RemoteAddr().String()),
 	)
+
+	proxyServeSummary.WithLabelValues().Observe(time.Since(start).Seconds())
 }
 
 type proxy struct {

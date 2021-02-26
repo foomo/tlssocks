@@ -9,7 +9,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
@@ -79,4 +82,16 @@ func CtxCancelOnOsSignal(log *zap.Logger) context.Context {
 		}
 	}()
 	return ctx
+}
+
+func NewSummaryVector(name string, description string, labels []string) *prometheus.SummaryVec {
+	return promauto.NewSummaryVec(prometheus.SummaryOpts{
+		Namespace:  "mzg",
+		Subsystem:  "mitsproxy",
+		Name:       name,
+		Help:       description,
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		MaxAge:     1 * time.Hour,
+		BufCap:     3 * prometheus.DefBufCap,
+	}, labels)
 }
