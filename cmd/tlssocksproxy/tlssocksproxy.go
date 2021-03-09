@@ -19,12 +19,10 @@ const (
 	connDeadline             = 60 * time.Second
 )
 
-var (
-	proxyServeSummary = cmd.NewSummaryVector(
-		"serve_duration_seconds",
-		"Measures serve duration for mitsproxy in seconds",
-		nil,
-	)
+var proxyServeSummary = cmd.NewSummaryVector(
+	"serve_duration_seconds",
+	"Measures serve duration for mitsproxy in seconds",
+	nil,
 )
 
 func main() {
@@ -95,8 +93,8 @@ func serve(ctx context.Context, logger *zap.Logger, localConn net.Conn, remoteAd
 	_ = localConn.SetDeadline(deadline)
 	_ = remoteConn.SetDeadline(deadline)
 
-	go p.pipe(ctx, remoteConn, localConn, true)
-	go p.pipe(ctx, localConn, remoteConn, false)
+	go p.pipe(ctx, remoteConn, localConn, isLocalConnection)
+	go p.pipe(ctx, localConn, remoteConn, isLocalNotConnection)
 
 	<-p.wait
 	logger.Info(
@@ -118,6 +116,11 @@ type proxy struct {
 	wait          chan struct{}
 	erred         uint32
 }
+
+const (
+	isLocalConnection    = true
+	isLocalNotConnection = false
+)
 
 func (p *proxy) pipe(ctx context.Context, dst io.Writer, src io.Reader, isLocal bool) {
 	buff := make([]byte, 65535)
@@ -155,5 +158,11 @@ func (p *proxy) err(message string, err error) {
 	}
 
 	atomic.StoreUint32(&p.erred, 1)
-	close(p.wait)
+
+	select {
+	case <-p.wait:
+		// channel has already been closed
+	default:
+		close(p.wait)
+	}
 }
